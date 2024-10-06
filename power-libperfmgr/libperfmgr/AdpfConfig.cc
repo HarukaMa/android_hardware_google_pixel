@@ -53,11 +53,29 @@ void AdpfConfig::dumpToFd(int fd) {
     dump_buf << "SamplingWindow_I: " << mSamplingWindowI << "\n";
     dump_buf << "SamplingWindow_D: " << mSamplingWindowD << "\n";
     dump_buf << "UclampMin_On: " << mUclampMinOn << "\n";
+    dump_buf << "UclampMin_Init: " << mUclampMinInit << "\n";
+    dump_buf << "UclampMin_LoadUp: " << mUclampMinLoadUp << "\n";
+    dump_buf << "UclampMin_LoadReset: " << mUclampMinLoadReset << "\n";
     dump_buf << "UclampMin_High: " << mUclampMinHigh << "\n";
     dump_buf << "UclampMin_Low: " << mUclampMinLow << "\n";
     dump_buf << "ReportingRateLimitNs: " << mReportingRateLimitNs << "\n";
     dump_buf << "TargetTimeFactor: " << mTargetTimeFactor << "\n";
     dump_buf << "StaleTimeFactor: " << mStaleTimeFactor << "\n";
+    if (mHeuristicBoostOn.has_value()) {
+        dump_buf << "HeuristicBoost_On: " << mHeuristicBoostOn.value() << "\n";
+        dump_buf << "HBoostOnMissedCycles: " << mHBoostOnMissedCycles.value() << "\n";
+        dump_buf << "HBoostOffMaxAvgRatio: " << mHBoostOffMaxAvgRatio.value() << "\n";
+        dump_buf << "HBoostOffMissedCycles: " << mHBoostOffMissedCycles.value() << "\n";
+        dump_buf << "HBoostPidPuFactor: " << mHBoostPidPuFactor.value() << "\n";
+        dump_buf << "HBoostUclampMin: " << mHBoostUclampMin.value() << "\n";
+        dump_buf << "JankCheckTimeFactor: " << mJankCheckTimeFactor.value() << "\n";
+        dump_buf << "LowFrameRateThreshold: " << mLowFrameRateThreshold.value() << "\n";
+        dump_buf << "MaxRecordsNum: " << mMaxRecordsNum.value() << "\n";
+    }
+    if (mUclampMaxEfficientBase.has_value()) {
+        dump_buf << "UclampMax_EfficientBase: " << *mUclampMaxEfficientBase << "\n";
+        dump_buf << "UclampMax_EfficientOffset: " << *mUclampMaxEfficientOffset << "\n";
+    }
     if (!android::base::WriteStringToFd(dump_buf.str(), fd)) {
         LOG(ERROR) << "Failed to dump ADPF profile to fd: " << fd;
     }

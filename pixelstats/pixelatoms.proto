@@ -120,6 +120,7 @@ message Atom {
       DisplayPortErrorStats display_port_error_stats = 105066;
       HDCPAuthTypeStats hdcp_auth_type_stats = 105067;
       DisplayPortUsage display_port_usage = 105068;
+      FuelGaugeAbnormality fuel_gauge_abnormality = 105069;
     }
     // AOSP atom ID range ends at 109999
     reserved 109997; // reserved for VtsVendorAtomJavaTest test atom
@@ -622,8 +623,8 @@ message PixelMmMetricsPerHour {
     optional int32 psi_mem_some_avg300_avg = 60;
     optional int32 version = 61 [deprecated = true];
     optional int64 shmem_pages = 62;
-    optional int64 page_tables_pages = 63;
-    optional int64 dmabuf_pages = 64;
+    optional int64 page_table_pages = 63;
+    optional int64 dmabuf_kb = 64;
 }
 
 /* A message containing Pixel memory metrics collected daily. */
@@ -688,9 +689,9 @@ message PixelMmMetricsPerDay {
     optional int64 thp_migration_split = 58;
     optional int64 thp_deferred_split_page = 59;
     optional int64 version = 60 [deprecated = true];
-    optional int64 cpu_total_time = 61;
-    optional int64 cpu_idle_time = 62;
-    optional int64 cpu_io_wait_time = 63;
+    optional int64 cpu_total_time_cs = 61;
+    optional int64 cpu_idle_time_cs = 62;
+    optional int64 cpu_io_wait_time_cs = 63;
     optional int64 kswapd_pageout_run = 64;
 }
 
@@ -952,6 +953,10 @@ message PowerMitigationStats {
  optional int32 soft_ocp_gpu_cap = 24;
  // The last triggered capacity: soft_ocp_tpu.
  optional int32 soft_ocp_tpu_cap = 25;
+ // The last triggered count: batoilo2.
+ optional int32 batoilo2_count = 26;
+ // The last triggered capacity: batoilo2.
+ optional int32 batoilo2_cap = 27;
 }
 
 /**
@@ -1643,6 +1648,26 @@ message BrownoutDetected {
     optional int32 dvfs_channel6 = 37;
     // brownout reason
     optional BrownoutReason brownout_reason = 38;
+    // max current
+    optional int32 max_current = 39;
+    // event counter uvlo1
+    optional int32 evt_cnt_uvlo1 = 40;
+    // event counter uvlo2
+    optional int32 evt_cnt_uvlo2 = 41;
+    // event counter oilo1
+    optional int32 evt_cnt_oilo1 = 42;
+    // event counter oilo2
+    optional int32 evt_cnt_oilo2 = 43;
+    // VIMON vbatt
+    optional int32 vimon_vbatt = 44;
+    // VIMON ibatt
+    optional int32 vimon_ibatt = 45;
+    // Mitigation Method 0
+    optional int32 mitigation_method_0 = 46;
+    // Mitigation Method 0 Entry Count
+    optional int32 mitigation_method_0_count = 47;
+    // Mitigation Method 0 Entry Time
+    optional int64 mitigation_method_0_time_us = 48;
 }
 
 /*
@@ -2248,4 +2273,65 @@ message DisplayPortUsage {
   optional int32 product_id = 6;
   /* indicated start/stop event of DP usage */
   optional bool connected = 7;
+}
+
+/*
+ * A message containing max77779 fuel gauge abnormal events
+ * Logged from:
+ *    hardware/google/pixel/pixelstats/BatteryFGReporter.cpp
+ */
+message FuelGaugeAbnormality {
+  enum Event {
+    NONE = 0;            // no abnormal event
+    FULLCAPNOM_LOW = 1;  // unexpected fullcapnom learning (too low)
+    FULLCAPNOM_HIGH = 2; // unexpected fullcapnom learning (too high)
+    REPSOC_EDET = 3;     // empty detect false alarm
+    REPSOC_FDET = 4;     // full detect false alarm
+    REPSOC = 5;          // repsoc not accurate
+    VFOCV = 6;           // vfocv estimation wrong
+  }
+  enum EventState {
+    CLEAR = 0;
+    TRIGGER = 1;
+  }
+  /* Vendor reverse domain name */
+  optional string reverse_domain_name = 1;
+  /* Report by which event */
+  repeated Event event = 2;
+  /* State was triggered or untriggered */
+  repeated EventState event_state = 3;
+  optional int32 duration_secs = 4;
+  /* Record fuel gauge registers at the time of the event */
+  optional int32 fg_register_address_1 = 5;
+  optional int32 fg_register_data_1 = 6;
+  optional int32 fg_register_address_2 = 7;
+  optional int32 fg_register_data_2 = 8;
+  optional int32 fg_register_address_3 = 9;
+  optional int32 fg_register_data_3 = 10;
+  optional int32 fg_register_address_4 = 11;
+  optional int32 fg_register_data_4 = 12;
+  optional int32 fg_register_address_5 = 13;
+  optional int32 fg_register_data_5 = 14;
+  optional int32 fg_register_address_6 = 15;
+  optional int32 fg_register_data_6 = 16;
+  optional int32 fg_register_address_7 = 17;
+  optional int32 fg_register_data_7 = 18;
+  optional int32 fg_register_address_8 = 19;
+  optional int32 fg_register_data_8 = 20;
+  optional int32 fg_register_address_9 = 21;
+  optional int32 fg_register_data_9 = 22;
+  optional int32 fg_register_address_10 = 23;
+  optional int32 fg_register_data_10 = 24;
+  optional int32 fg_register_address_11= 25;
+  optional int32 fg_register_data_11= 26;
+  optional int32 fg_register_address_12= 27;
+  optional int32 fg_register_data_12 = 28;
+  optional int32 fg_register_address_13 = 29;
+  optional int32 fg_register_data_13 = 30;
+  optional int32 fg_register_address_14 = 31;
+  optional int32 fg_register_data_14 = 32;
+  optional int32 fg_register_address_15 = 33;
+  optional int32 fg_register_data_15 = 34;
+  optional int32 fg_register_address_16 = 35;
+  optional int32 fg_register_data_16 = 36;
 }

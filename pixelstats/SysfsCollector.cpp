@@ -135,7 +135,9 @@ SysfsCollector::SysfsCollector(const struct SysfsPaths &sysfs_paths)
       kOffloadEffectsDurationPath(sysfs_paths.OffloadEffectsDurationPath),
       kBluetoothAudioUsagePath(sysfs_paths.BluetoothAudioUsagePath),
       kGMSRPath(sysfs_paths.GMSRPath),
-      kMaxfgHistoryPath("/dev/maxfg_history") {}
+      kMaxfgHistoryPath("/dev/maxfg_history"),
+      kFGModelLoadingPath(sysfs_paths.FGModelLoadingPath),
+      kFGLogBufferPath(sysfs_paths.FGLogBufferPath) {}
 
 bool SysfsCollector::ReadFileToInt(const std::string &path, int *val) {
     return ReadFileToInt(path.c_str(), val);
@@ -209,8 +211,22 @@ void SysfsCollector::logBatteryEEPROM(const std::shared_ptr<IStats> &stats_clien
     }
 
     battery_EEPROM_reporter_.checkAndReportGMSR(stats_client, kGMSRPath);
-
     battery_EEPROM_reporter_.checkAndReportMaxfgHistory(stats_client, kMaxfgHistoryPath);
+    battery_EEPROM_reporter_.checkAndReportFGModelLoading(stats_client, kFGModelLoadingPath);
+    battery_EEPROM_reporter_.checkAndReportFGLearning(stats_client, kFGLogBufferPath);
+}
+
+/**
+ * Log battery history validation
+ */
+void SysfsCollector::logBatteryHistoryValidation() {
+    const std::shared_ptr<IStats> stats_client = getStatsService();
+    if (!stats_client) {
+        ALOGE("Unable to get AIDL Stats service");
+        return;
+    }
+
+    battery_EEPROM_reporter_.checkAndReportValidation(stats_client, kFGLogBufferPath);
 }
 
 /**
@@ -2133,6 +2149,7 @@ void SysfsCollector::logBrownout() {
 
 void SysfsCollector::logOnce() {
     logBrownout();
+    logBatteryHistoryValidation();
 }
 
 void SysfsCollector::logPerHour() {

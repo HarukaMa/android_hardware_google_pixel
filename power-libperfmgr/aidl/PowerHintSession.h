@@ -28,6 +28,7 @@
 #include <unordered_map>
 
 #include "AppDescriptorTrace.h"
+#include "SessionRecords.h"
 
 namespace aidl {
 namespace google {
@@ -100,6 +101,7 @@ class PowerHintSession : public BnPowerHintSession {
     bool isTimeout();
     // Is hint session for a user application
     bool isAppSession();
+    bool isModeSet(SessionMode mode) const;
     void dumpToStream(std::ostream &stream);
     SessionTag getSessionTag() const;
 
@@ -107,23 +109,25 @@ class PowerHintSession : public BnPowerHintSession {
     void tryToSendPowerHint(std::string hint);
     void updatePidControlVariable(int pidControlVariable, bool updateVote = true);
     int64_t convertWorkDurationToBoostByPid(const std::vector<WorkDuration> &actualDurations);
+    bool updateHeuristicBoost();
     // Data
     sp<PowerSessionManager> mPSManager;
     int64_t mSessionId = 0;
     std::string mIdString;
     std::shared_ptr<AppHintDesc> mDescriptor;
     // Trace strings
-    AppDescriptorTrace mAppDescriptorTrace;
+    std::shared_ptr<AppDescriptorTrace> mAppDescriptorTrace;
     std::atomic<time_point<steady_clock>> mLastUpdatedTime;
     std::atomic<bool> mSessionClosed = false;
     // Are cpu load change related hints are supported
     std::unordered_map<std::string, std::optional<bool>> mSupportedHints;
     // Last session hint sent, used for logging
     int mLastHintSent = -1;
-    // Use the value of the last enum in enum_range +1 as array size
     std::array<bool, enum_size<SessionMode>()> mModes{};
     // Tag labeling what kind of session this is
     SessionTag mTag;
+    std::unique_ptr<SessionRecords> mSessionRecords;
+    bool mHeuristicBoostActive{false};
 };
 
 }  // namespace pixel

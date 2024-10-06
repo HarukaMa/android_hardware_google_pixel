@@ -29,6 +29,7 @@
 #include <utils/Trace.h>
 
 #include "AdpfTypes.h"
+#include "AppDescriptorTrace.h"
 
 namespace aidl {
 namespace google {
@@ -37,8 +38,6 @@ namespace power {
 namespace impl {
 namespace pixel {
 
-using ::android::base::StringPrintf;
-using ::android::perfmgr::AdpfConfig;
 using ::android::perfmgr::HintManager;
 
 namespace {
@@ -56,17 +55,17 @@ struct sched_attr {
     __u32 sched_util_max;
 };
 
-static int set_uclamp_min(int tid, int min) {
-    static constexpr int32_t kMinUclampValue = 0;
-    static constexpr int32_t kMaxUclampValue = 1024;
-    min = std::max(kMinUclampValue, min);
-    min = std::min(min, kMaxUclampValue);
-
+static int set_uclamp(int tid, UclampRange range) {
+    // Ensure min and max are bounded by the range limits and each other
+    range.uclampMin = std::min(std::max(kUclampMin, range.uclampMin), kUclampMax);
+    range.uclampMax = std::min(std::max(range.uclampMax, range.uclampMin), kUclampMax);
     sched_attr attr = {};
     attr.size = sizeof(attr);
 
-    attr.sched_flags = (SCHED_FLAG_KEEP_ALL | SCHED_FLAG_UTIL_CLAMP_MIN);
-    attr.sched_util_min = min;
+    attr.sched_flags =
+            (SCHED_FLAG_KEEP_ALL | SCHED_FLAG_UTIL_CLAMP_MIN | SCHED_FLAG_UTIL_CLAMP_MAX);
+    attr.sched_util_min = range.uclampMin;
+    attr.sched_util_max = range.uclampMax;
 
     const int ret = syscall(__NR_sched_setattr, tid, attr, 0);
     if (ret) {
@@ -104,6 +103,7 @@ int PowerSessionManager::getDisplayRefreshRate() {
 
 void PowerSessionManager::addPowerSession(const std::string &idString,
                                           const std::shared_ptr<AppHintDesc> &sessionDescriptor,
+                                          const std::shared_ptr<AppDescriptorTrace> &sessionTrace,
                                           const std::vector<int32_t> &threadIds) {
     if (!sessionDescriptor) {
         ALOGE("sessionDescriptor is null. PowerSessionManager failed to add power session: %s",
@@ -119,8 +119,9 @@ void PowerSessionManager::addPowerSession(const std::string &idString,
     sve.isAppSession = sessionDescriptor->uid >= AID_APP_START;
     sve.lastUpdatedTime = timeNow;
     sve.votes = std::make_shared<Votes>();
+    sve.sessionTrace = sessionTrace;
     sve.votes->add(
-            static_cast<std::underlying_type_t<AdpfHintType>>(AdpfHintType::ADPF_VOTE_DEFAULT),
+            static_cast<std::underlying_type_t<AdpfVoteType>>(AdpfVoteType::CPU_VOTE_DEFAULT),
             CpuVote(false, timeNow, sessionDescriptor->targetNs, kUclampMin, kUclampMax));
 
     bool addedRes = false;
@@ -270,9 +271,9 @@ void PowerSessionManager::resume(int64_t sessionId) {
     updateUniversalBoostMode();
 }
 
-void PowerSessionManager::updateTargetWorkDuration(int64_t sessionId, AdpfHintType voteId,
+void PowerSessionManager::updateTargetWorkDuration(int64_t sessionId, AdpfVoteType voteId,
                                                    std::chrono::nanoseconds durationNs) {
-    int voteIdInt = static_cast<std::underlying_type_t<AdpfHintType>>(voteId);
+    int voteIdInt = static_cast<std::underlying_type_t<AdpfVoteType>>(voteId);
     std::lock_guard<std::mutex> lock(mSessionTaskMapMutex);
     auto sessValPtr = mSessionTaskMap.findSession(sessionId);
     if (nullptr == sessValPtr) {
@@ -286,10 +287,10 @@ void PowerSessionManager::updateTargetWorkDuration(int64_t sessionId, AdpfHintTy
     // revisit that decision.
 }
 
-void PowerSessionManager::voteSet(int64_t sessionId, AdpfHintType voteId, int uclampMin,
+void PowerSessionManager::voteSet(int64_t sessionId, AdpfVoteType voteId, int uclampMin,
                                   int uclampMax, std::chrono::steady_clock::time_point startTime,
                                   std::chrono::nanoseconds durationNs) {
-    const int voteIdInt = static_cast<std::underlying_type_t<AdpfHintType>>(voteId);
+    const int voteIdInt = static_cast<std::underlying_type_t<AdpfVoteType>>(voteId);
     const auto timeoutDeadline = startTime + durationNs;
     bool scheduleTimeout = false;
 
@@ -311,6 +312,9 @@ void PowerSessionManager::voteSet(int64_t sessionId, AdpfHintType voteId, int uc
         }
         sessValPtr->votes->add(voteIdInt,
                                CpuVote(true, startTime, durationNs, uclampMin, uclampMax));
+        if (ATRACE_ENABLED()) {
+            ATRACE_INT(sessValPtr->sessionTrace->trace_votes[voteIdInt].c_str(), uclampMin);
+        }
         sessValPtr->lastUpdatedTime = startTime;
     }
 
@@ -338,12 +342,14 @@ void PowerSessionManager::disableBoosts(int64_t sessionId) {
         }
 
         // sessValPtr->disableBoosts();
-        for (auto vid :
-             {AdpfHintType::ADPF_CPU_LOAD_UP, AdpfHintType::ADPF_CPU_LOAD_RESET,
-              AdpfHintType::ADPF_CPU_LOAD_RESUME, AdpfHintType::ADPF_VOTE_POWER_EFFICIENCY,
-              AdpfHintType::ADPF_GPU_LOAD_UP, AdpfHintType::ADPF_GPU_LOAD_RESET}) {
-            auto vint = static_cast<std::underlying_type_t<AdpfHintType>>(vid);
+        for (auto vid : {AdpfVoteType::CPU_LOAD_UP, AdpfVoteType::CPU_LOAD_RESET,
+                         AdpfVoteType::CPU_LOAD_RESUME, AdpfVoteType::VOTE_POWER_EFFICIENCY,
+                         AdpfVoteType::GPU_LOAD_UP, AdpfVoteType::GPU_LOAD_RESET}) {
+            auto vint = static_cast<std::underlying_type_t<AdpfVoteType>>(vid);
             sessValPtr->votes->setUseVote(vint, false);
+            if (ATRACE_ENABLED()) {
+                ATRACE_INT(sessValPtr->sessionTrace->trace_votes[vint].c_str(), 0);
+            }
         }
     }
 }
@@ -389,6 +395,10 @@ void PowerSessionManager::handleEvent(const EventSessionTimeout &eventTimeout) {
             if (voteTimeout <= tNow) {
                 sessValPtr->votes->setUseVote(eventTimeout.voteId, false);
                 recalcUclamp = true;
+                if (ATRACE_ENABLED()) {
+                    ATRACE_INT(sessValPtr->sessionTrace->trace_votes[eventTimeout.voteId].c_str(),
+                               0);
+                }
             } else {
                 // Can unlock sooner than we do
                 auto eventTimeout2 = eventTimeout;
@@ -410,8 +420,7 @@ void PowerSessionManager::handleEvent(const EventSessionTimeout &eventTimeout) {
 
 void PowerSessionManager::applyUclamp(int64_t sessionId,
                                       std::chrono::steady_clock::time_point timePoint) {
-    const bool uclampMinOn = HintManager::GetInstance()->GetAdpfProfile()->mUclampMinOn;
-
+    auto config = HintManager::GetInstance()->GetAdpfProfile();
     {
         std::lock_guard<std::mutex> lock(mSessionTaskMapMutex);
         auto sessValPtr = mSessionTaskMap.findSession(sessionId);
@@ -419,16 +428,17 @@ void PowerSessionManager::applyUclamp(int64_t sessionId,
             return;
         }
 
-        if (!uclampMinOn) {
-            ALOGV("PowerSessionManager::set_uclamp_min: skip");
+        if (!config->mUclampMinOn) {
+            ALOGV("PowerSessionManager::set_uclamp: skip");
         } else {
             auto &threadList = mSessionTaskMap.getTaskIds(sessionId);
             auto tidIter = threadList.begin();
             while (tidIter != threadList.end()) {
                 UclampRange uclampRange;
-                mSessionTaskMap.getTaskVoteRange(*tidIter, timePoint, &uclampRange.uclampMin,
-                                                 &uclampRange.uclampMax);
-                int stat = set_uclamp_min(*tidIter, uclampRange.uclampMin);
+                mSessionTaskMap.getTaskVoteRange(*tidIter, timePoint, uclampRange,
+                                                 config->mUclampMaxEfficientBase,
+                                                 config->mUclampMaxEfficientOffset);
+                int stat = set_uclamp(*tidIter, uclampRange);
                 if (stat == ESRCH) {
                     ALOGV("Removing dead thread %d from hint session %s.", *tidIter,
                           sessValPtr->idString.c_str());
@@ -461,6 +471,24 @@ void PowerSessionManager::forceSessionActive(int64_t sessionId, bool isActive) {
     // which enables apply u clamp to work correctly
     applyUclamp(sessionId, std::chrono::steady_clock::now());
     updateUniversalBoostMode();
+}
+
+void PowerSessionManager::setPreferPowerEfficiency(int64_t sessionId, bool enabled) {
+    bool updated = false;
+    {
+        std::lock_guard<std::mutex> lock(mSessionTaskMapMutex);
+        auto sessValPtr = mSessionTaskMap.findSession(sessionId);
+        if (nullptr == sessValPtr) {
+            return;
+        }
+        if (enabled != sessValPtr->isPowerEfficient) {
+            sessValPtr->isPowerEfficient = enabled;
+            updated = true;
+        }
+    }
+    if (updated) {
+        applyUclamp(sessionId, std::chrono::steady_clock::now());
+    }
 }
 
 }  // namespace pixel
